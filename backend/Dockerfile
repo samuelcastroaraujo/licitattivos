@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install uv
 
 # Copia arquivos de configuração do uv e instala dependências Python
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv pip install --system -r pyproject.toml
 
 # Instala os browsers do Playwright
