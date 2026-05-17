@@ -2,8 +2,7 @@
 # Documentação: https://docs.railway.app/reference/config-as-code
 
 [deploy]
-buildCommand = "cd backend && pip install uv && uv pip install --system -r pyproject.toml && playwright install chromium && playwright install-deps chromium"
-startCommand = "/bin/sh -c \"uvicorn main:app --host 0.0.0.0 --port $PORT\""
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
