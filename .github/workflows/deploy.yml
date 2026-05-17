@@ -1,0 +1,56 @@
+name: LicitAttivos CI/CD Pipeline (Anti-Vibe)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        
+    - name: Install dependencies (uv)
+      run: |
+        python -m pip install --upgrade pip
+        pip install uv
+        cd backend
+        uv pip install --system -r pyproject.toml
+        # Ferramentas extras para CI
+        uv pip install --system mypy bandit
+
+    - name: Type Checking (Mypy) - Prevenção de NoneType
+      run: |
+        cd backend
+        mypy agents/ routers/ models/ --ignore-missing-imports
+
+    - name: Security Scan (Bandit) - Prevenção SQLi / Path Traversal
+      run: |
+        cd backend
+        bandit -r agents/ routers/ -ll -ii
+        
+    - name: Run Tests (Pytest 100% Verde)
+      run: |
+        cd backend
+        pytest ../tests/ --disable-warnings -v
+        
+  # Se precisasse fazer o deploy automático no Railway usando Railway CLI
+  # deploy:
+  #   needs: test-and-lint
+  #   runs-on: ubuntu-latest
+  #   if: github.ref == 'refs/heads/main'
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install Railway
+  #       run: npm i -g @railway/cli
+  #     - name: Deploy
+  #       run: railway up --service backend
+  #       env:
+  #         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

@@ -1,0 +1,14 @@
+# railway.toml — Configuração de deploy do LicitAttivos para o Railway
+# Documentação: https://docs.railway.app/reference/config-as-code
+
+[deploy]
+buildCommand = "cd backend && pip install uv && uv pip install --system -r pyproject.toml && playwright install chromium && playwright install-deps chromium"
+startCommand = "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"

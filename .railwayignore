@@ -1,0 +1,13 @@
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+dist/
+*.egg-info/
+node_modules/
+.next/
+*.log
+backend/tmp/
+backend/editais_downloads/

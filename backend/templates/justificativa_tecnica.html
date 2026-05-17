@@ -1,0 +1,11 @@
+<html>
+<body>
+<h1>Justificativa Técnica</h1>
+<p>Empresa: {{ empresa_nome }} - {{ empresa_cnpj }}</p>
+<ul>
+{% for item in itens %}
+    <li>{{ item.numero_item }}: {{ item.justificativa }}</li>
+{% endfor %}
+</ul>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<html>
+<body>
+<h1>Proposta Comercial</h1>
+<p>Empresa: {{ empresa_nome }} - {{ empresa_cnpj }}</p>
+<p>Validade: {{ data_validade_proposta }}</p>
+<ul>
+{% for item in itens %}
+    <li>{{ item.numero_item }}: {{ item.descricao_original }} - Valor Total: R$ {{ "{:,.2f}".format(item.quantidade_pregao * item.preco_unitario).replace(',', 'X').replace('.', ',').replace('X', '.') }}</li>
+{% endfor %}
+</ul>
+</body>
+</html>
