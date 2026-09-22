@@ -50,11 +50,10 @@ async def test_websocket_broadcast_imediato_abaixo_100ms():
             }
             # Simula a inserção na fila global
             manager.pending_events.append(evento)
-            # Envia via broadcast async loop safe in TestClient
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(evento),
-                asyncio.get_running_loop()
-            ).result()
+            # Já estamos rodando no loop do teste — await direto evita o
+            # deadlock de aguardar (.result()) uma coroutine agendada no
+            # próprio loop que está bloqueado esperando por ela.
+            await manager.broadcast(evento)
             
             # Cliente deve receber a mensagem
             data = websocket.receive_json()
