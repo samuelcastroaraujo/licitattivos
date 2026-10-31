@@ -46,6 +46,9 @@ function StatusBadge({ status }: { status: string }) {
     texto_extraido:            { label: 'Parseado',         cls: styles.badgeBrand },
     arquivado:                 { label: 'Arquivado',        cls: styles.badgeMuted },
     novo:                      { label: 'Novo',             cls: styles.badgeMuted },
+    revisao_manual_parser:     { label: 'Revisão manual',   cls: styles.badgeAmbar },
+    erro_pipeline:             { label: 'Erro na análise',  cls: styles.badgeVermelho },
+    erro_download:             { label: 'Erro no download', cls: styles.badgeVermelho },
   };
   const m = map[status] ?? { label: status, cls: styles.badgeMuted };
   return <span className={m.cls}>{m.label}</span>;
@@ -168,8 +171,9 @@ function ValidationModal({
 import { useWarRoom } from '../hooks/useWarRoom';
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────
-const API = 'http://localhost:8000/api';
-const WS_API = 'ws://localhost:8000/ws/war-room';
+// Passa pelo servidor do painel, que guarda o token da API.
+const API = '/api/backend';
+const WS_API = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000/ws/war-room';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todos os status' },
@@ -177,12 +181,14 @@ const STATUS_OPTIONS = [
   { value: 'compatibilidade_calculada', label: 'Compatibilidade Calculada' },
   { value: 'pronto_para_envio', label: 'Pronto p/ Envio' },
   { value: 'novo', label: 'Novos' },
+  { value: 'revisao_manual_parser', label: 'Revisão manual' },
+  { value: 'erro_pipeline', label: 'Erro na análise' },
   { value: 'arquivado', label: 'Arquivados' },
 ];
 
 export default function Dashboard() {
   const [editais, setEditais] = useState<Edital[]>([]);
-  const [filterStatus, setFilterStatus] = useState('pendente_revisao_juridica');
+  const [filterStatus, setFilterStatus] = useState('');
   const [filterOrgao, setFilterOrgao] = useState('');
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Edital | null>(null);
@@ -212,14 +218,37 @@ export default function Dashboard() {
       const json = await res.json();
       setEditais(json.data ?? []);
     } catch {
-      showToast('Backend offline — exibindo dados de demonstração', 'err');
-      setEditais(DEMO_DATA);
+      // Nunca mostrar dado fictício em tela de decisão.
+      showToast('Não foi possível carregar os editais. Backend offline?', 'err');
+      setEditais([]);
     } finally {
       setLoading(false);
     }
   }, [filterStatus, filterOrgao]);
 
   useEffect(() => { fetchEditais(); }, [fetchEditais]);
+
+  const buscarEditais = async () => {
+    showToast('Buscando editais na ConLicitação...', 'ok');
+    try {
+      const res = await fetch(`${API}/pipeline/ingest/conlicitacao`, { method: 'POST' });
+      if (!res.ok) {
+        const erro = await res.json().catch(() => null);
+        throw new Error(erro?.detail ?? 'Falha na busca.');
+      }
+      const json = await res.json();
+      showToast(`${json.salvos} editais atualizados.`, 'ok');
+      fetchEditais();
+    } catch (erro) {
+      showToast(erro instanceof Error ? erro.message : 'Falha na busca.', 'err');
+    }
+  };
+
+  // A análise usa IA paga: só roda para o edital escolhido.
+  const analisar = async (edital: Edital) => {
+    const res = await fetch(`${API}/pipeline/run/${edital.id}`, { method: 'POST' }).catch(() => null);
+    showToast(res?.ok ? 'Análise iniciada. Atualize em alguns minutos.' : 'Não foi possível iniciar a análise.', res?.ok ? 'ok' : 'err');
+  };
 
   const openModal = async (edital: Edital) => {
     setSelected(edital);
@@ -230,10 +259,12 @@ export default function Dashboard() {
         const json = await res.json();
         setSelectedItens(json.itens ?? []);
       } else {
-        setSelectedItens(DEMO_ITENS);
+        setSelectedItens([]);
+        showToast('Não foi possível carregar os itens.', 'err');
       }
     } catch {
-      setSelectedItens(DEMO_ITENS);
+      setSelectedItens([]);
+      showToast('Não foi possível carregar os itens.', 'err');
     } finally {
       setLoadingModal(false);
     }
@@ -329,6 +360,7 @@ export default function Dashboard() {
         <header className={styles.topbar}>
           <div>
             <h1 className={styles.pageTitle}>Dashboard de Decisão</h1>
+            <button type="button" className={styles.btnRefresh} onClick={buscarEditais}>Buscar editais</button>
             <p className={styles.pageSub}>Validação pelo analista · Gatilho humano de envio</p>
           </div>
           {pendentes > 0 && (
@@ -404,6 +436,9 @@ export default function Dashboard() {
                         {e.data_abertura ? new Date(e.data_abertura).toLocaleDateString('pt-BR') : '—'}
                       </td>
                       <td>
+                        {['novo', 'erro_pipeline', 'erro_download'].includes(e.status) && (
+                          <button className={styles.btnRefresh} onClick={() => analisar(e)}>Analisar</button>
+                        )}
                         <button
                           id={`btn-validar-${e.id}`}
                           className={styles.btnValidar}
@@ -446,48 +481,3 @@ export default function Dashboard() {
 }
 
 // ── Demo Data (API offline) ────────────────────────────────────────────────
-const DEMO_DATA: Edital[] = [
-  {
-    id: 'demo-1', numero_pregao: '00012/2026', orgao: 'Hospital Municipal de São Paulo',
-    status: 'pendente_revisao_juridica', portal_origem: 'pncp',
-    data_abertura: '2026-05-20T10:00:00Z', created_at: '2026-05-10T00:00:00Z',
-    licit_context: { score_medio: 0.82, impugnacoes: ['Vício de Direcionamento: Edital exige exclusivamente "Just Whey" sem admitir similares, violando a Lei 14.133/21.'] }
-  },
-  {
-    id: 'demo-2', numero_pregao: '00034/2026', orgao: 'UBS Centro — Prefeitura de Campinas',
-    status: 'pendente_revisao_juridica', portal_origem: 'comprasnet',
-    data_abertura: '2026-05-22T14:00:00Z', created_at: '2026-05-10T00:00:00Z',
-    licit_context: { score_medio: 0.95 }
-  },
-  {
-    id: 'demo-3', numero_pregao: '00007/2026', orgao: 'HUSM — Hospital Universitário Santa Maria',
-    status: 'compatibilidade_calculada', portal_origem: 'bll',
-    data_abertura: '2026-05-25T09:00:00Z', created_at: '2026-05-09T00:00:00Z',
-    licit_context: { score_medio: 0.45 }
-  },
-  {
-    id: 'demo-4', numero_pregao: '00051/2026', orgao: 'Secretaria de Saúde — Fortaleza',
-    status: 'pronto_para_envio', portal_origem: 'pncp',
-    data_abertura: '2026-06-01T10:00:00Z', created_at: '2026-05-08T00:00:00Z',
-    licit_context: { score_medio: 0.96 }
-  },
-];
-
-const DEMO_ITENS: LicitItem[] = [
-  {
-    id: 'item-1', numero_item: 'Item 01', descricao_original: 'Suplemento hiperproteico 20g proteína, via enteral',
-    score_compatibilidade: 0.92, status: 'verde',
-    justificativa: 'Aprovado sem ressalvas. Pholias Hiperproteico 100% compatível.', alertas: []
-  },
-  {
-    id: 'item-2', numero_item: 'Item 02', descricao_original: 'Módulo proteico com Registro MS obrigatório',
-    score_compatibilidade: 0.81, status: 'amarelo',
-    justificativa: 'Requer recurso administrativo para justificar a RDC. Produto é Dispensado de Registro.',
-    alertas: ['gap_de_informacao: quantidade_pregao']
-  },
-  {
-    id: 'item-3', numero_item: 'Item 03', descricao_original: 'Fórmula pediátrica, 300 kcal, sem glúten',
-    score_compatibilidade: 0.08, status: 'vermelho',
-    justificativa: 'Incompatível: Edital pede 300kcal, produto tem 250kcal.', alertas: []
-  },
-];

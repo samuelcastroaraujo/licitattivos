@@ -1,5 +1,5 @@
 # CLAUDE.md — LicitAttivos
-> Este arquivo é a memória permanente do projeto. Leia-o integralmente antes de qualquer tarefa.
+> Este arquivo é a memória permanente do projeto. Leia-o integralmente antes de qualque/CLEARr tarefa.
 > Nunca remova seções. Atualize quando a arquitetura evoluir.
 
 ---
@@ -29,7 +29,13 @@ O sistema elimina o trabalho manual do ciclo completo de uma licitação:
 ## Hurdles & Fixes (Diário de Bordo)
 - **Hurdle 1:** Supabase Singleton State Leak. *Fix:* Movido de global cache para instância via factory.
 - **Hurdle 2:** Playwright bloqueando UI. *Fix:* Movido para worker serverless/async isolation.
-- **Hurdle 3:** (Aberto para próximos confrontos em produção)
+- **Hurdle 3:** Agente 1 só buscava por CNPJ. *Fix:* `agents/agent0_ingest.py` usa a busca pública do PNCP e actors do Apify; `agents/orchestrator.py` liga os Agentes 1 a 4 sem LangGraph, por enquanto.
+- **Hurdle 4:** Ficha `.md` não define registro MS nem via enteral de forma confiável. *Fix:* `scripts/seed_products.py` usa o catálogo deste arquivo. Revisar os números nutricionais carregados antes de confiar no score.
+- **Inteligência histórica:** `backend/knowledge/snapshot.json` (fora do Git) vai para a tabela `knowledge_snapshot` com `scripts/import_knowledge.py`.
+- **Hurdle 5:** Banco já tinha 97 produtos (61 Pholias, 36 Venum), melhores que as fichas `.md`. *Fix:* seed recusa banco com dados; pipeline usa só Pholias. Pendente: revisar `tem_registro_ms` e `via_enteral`, que divergem do catálogo.
+- **Hurdle 6 (auditoria 31/10/2026):** item sem requisito numérico aprovava qualquer produto; regex de proteína copiava o valor do edital inteiro; painel mostrava dados falsos com backend offline; API sem autenticação. *Fix:* famílias de produto no Agente 4, regex só no item, painel sem dados de demonstração, token na API e senha no painel.
+- **Não usar em produção ainda:** Agente 5 (declaração vazia), Agente 7 (regras simplificadas), Agente 8 (sem conexão com portal) e Agente 9 (texto simulado). Não estão ligados ao pipeline.
+- **Hurdle 7:** (Aberto para próximos confrontos em produção)
 
 ## Filosofia Final
 Este sistema não é um MVP; é um **Asset Digital** desenhado para assumir a linha de frente comercial da Attivos Magisttrais. A IA deve se reportar ao `USER` como um desenvolvedor Sênior de missão crítica.
@@ -119,7 +125,7 @@ Cada agente tem responsabilidade única. A comunicação usa o objeto **`LicitCo
 |--------|------------|
 | Backend | Python 3.12 + FastAPI |
 | Orquestração de Agentes | LangGraph |
-| LLM Principal | Claude Sonnet (Anthropic API) |
+| LLM Principal | OpenRouter, modelo em `LLM_MODEL` (padrão DeepSeek V4.1 Flash) |
 | Banco de Dados | Supabase — PostgreSQL + pgvector |
 | Embeddings | `text-embedding-3-small` (OpenAI) |
 | Parser PDF nativo | `pdfplumber` + `pymupdf` + `pdfminer.six` |

@@ -43,7 +43,7 @@ async def test_agent4_critical_failure_math_threshold():
 
 @pytest.mark.asyncio
 async def test_agent4_ressalva_regulatory():
-    """Cenário de Ressalva: Edital pede Registro MS, produto é Dispensado. Score 0.70-0.89 e alerta."""
+    """Regra do CLAUDE.md: Registro MS exigido é eliminatório para produto sem registro confirmado. Alerta."""
     
     item = LicitItem(
         numero_item="02",
@@ -67,8 +67,8 @@ async def test_agent4_ressalva_regulatory():
         
         result = await match_product(item, product)
         
-        assert 0.70 <= result.score <= 0.89
-        assert result.status in ["ressalva", "amarelo"]
+        assert result.score <= 0.10
+        assert result.status == "vermelho"
         assert "registro" in result.justificativa_tecnica.lower()
 
 @pytest.mark.asyncio

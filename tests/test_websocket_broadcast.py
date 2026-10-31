@@ -24,7 +24,8 @@ from agents.agent8_monitor import ChatEvent, AlertLevel
 @pytest.fixture(autouse=True)
 def mock_lifespan_and_db(monkeypatch, mock_supabase_client):
     # Ignora os eventos de startup que tentam bater no banco real
-    monkeypatch.setattr("main.lifespan", None)
+    # O TestClient ainda executa o startup real; o cliente falso evita tocar no banco.
+    monkeypatch.setattr("main.get_supabase_client", lambda: __import__("unittest.mock").mock.MagicMock())
 
 @pytest.mark.asyncio
 async def test_websocket_broadcast_imediato_abaixo_100ms():
@@ -51,10 +52,7 @@ async def test_websocket_broadcast_imediato_abaixo_100ms():
             # Simula a inserção na fila global
             manager.pending_events.append(evento)
             # Envia via broadcast async loop safe in TestClient
-            asyncio.run_coroutine_threadsafe(
-                manager.broadcast(evento),
-                asyncio.get_running_loop()
-            ).result()
+            client.portal.call(manager.broadcast, evento)
             
             # Cliente deve receber a mensagem
             data = websocket.receive_json()
@@ -98,6 +96,9 @@ async def test_websocket_reconectar_e_recuperar_estado():
             # O cliente então dá o ACK de que viu a mensagem (A "ciência" da UI)
             websocket.send_json({"type": "ack", "event_id": "evt-perdido-1"})
             
+            # Um ping de ida e volta garante que o servidor já processou o ACK.
+            websocket.send_json({"type": "ping"})
+            assert websocket.receive_json()["type"] == "pong"
             # O backend deve marcar como ack
             assert len([e for e in manager.pending_events if not e["ack"]]) == 0
 

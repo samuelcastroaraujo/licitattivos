@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # Impede a gravação de arquivos .pyc e não bufferiza o stdout
 ENV PYTHONDONTWRITEBYTECODE=1

@@ -85,9 +85,15 @@ async def download_edital_anexo(edital: Edital) -> Edital:
     
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient() as http_client:
-                response = await http_client.get(edital.anexo_url_origem, timeout=30.0)
+            headers = {}
+            if "conlicitacao.com.br" in edital.anexo_url_origem:
+                from agents.agent0_ingest import cookie_conlicitacao
+                headers["cookie"] = await cookie_conlicitacao()
+            async with httpx.AsyncClient(follow_redirects=True) as http_client:
+                response = await http_client.get(edital.anexo_url_origem, headers=headers, timeout=120.0)
                 response.raise_for_status()
+                if "text/html" in response.headers.get("content-type", ""):
+                    raise ValueError("Portal devolveu página em vez do arquivo; verifique a sessão.")
                 
                 # Sucesso no download
                 pdf_bytes = response.content
@@ -95,7 +101,7 @@ async def download_edital_anexo(edital: Edital) -> Edital:
                 storage_path = f"editais_anexos/{edital.id}.pdf"
                 
                 # Upload para Supabase Storage
-                client.storage.from_("editais_anexos").upload(storage_path, pdf_bytes)
+                client.storage.from_("editais_anexos").upload(storage_path, pdf_bytes, {"upsert": "true"})
                 
                 # Atualiza metadados no banco
                 update_payload = {

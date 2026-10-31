@@ -7,9 +7,9 @@ from pydantic import BaseModel
 class Ingrediente(BaseModel):
     nome: str
     nome_normalizado: str
-    funcao: str
-    categoria: str
-    e_alergeno: bool
+    funcao: str | None = None
+    categoria: str | None = None
+    e_alergeno: bool = False
     quantidade_por_porcao_g: float | None = None
 
 
@@ -19,8 +19,8 @@ class Ingredientes(BaseModel):
 
 
 class Apresentacao(BaseModel):
-    gramatura: str
-    embalagem: str
+    gramatura: str | None = None
+    embalagem: str | None = None
     ean: str | None = None
     rendimento: str | None = None
 
