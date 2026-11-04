@@ -263,6 +263,8 @@ def gerar_proposta(edital: dict, itens: list[dict], quando: date | None = None, 
         corpo = _achar(doc, "Nos preços indicados")
         _texto(corpo, corpo.text.replace("120 dias corridos", f"{validade} dias corridos"))
 
+    # "ITENS OFERTADOS" fica sempre junto da tabela (no LibreOffice ele escorregava para o pé da página).
+    _achar(doc, "ITENS OFERTADOS").paragraph_format.keep_with_next = True
     tabela = doc.tables[0]
     modelo_linha = tabela.rows[1]
     total = 0.0
@@ -298,6 +300,7 @@ def gerar_proposta(edital: dict, itens: list[dict], quando: date | None = None, 
         celula.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
         for run in celula.paragraphs[0].runs:
             run.bold = True
+            run.font.name = "Arial"  # célula vazia do modelo não tem fonte; sem isso o servidor usa Times
     return _salvar(doc)
 
 
