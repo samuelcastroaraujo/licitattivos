@@ -52,6 +52,21 @@ def test_proposta_de_outro_ramo_com_fabricante_objeto_e_sem_anvisa():
     assert "R$ 19.495,00" in texto
 
 
+def test_servidor_sem_modelo_local_busca_no_supabase(monkeypatch, tmp_path):
+    """No Railway a pasta privada não existe: o modelo vem de config/ do bucket antes de qualquer checagem."""
+    from unittest.mock import MagicMock
+    origem = {"proposta_modelo.docx": D.MODELO.read_bytes(), "empresa.json": D.EMPRESA.read_bytes()}
+    monkeypatch.setattr(D, "PASTA_PRIVADA", tmp_path / "privado")
+    monkeypatch.setattr(D, "MODELO", tmp_path / "privado" / "proposta_modelo.docx")
+    monkeypatch.setattr(D, "EMPRESA", tmp_path / "privado" / "empresa.json")
+    banco = MagicMock()
+    banco.storage.from_.return_value.download.side_effect = lambda caminho: origem[caminho.split("/")[-1]]
+    monkeypatch.setattr(D, "get_supabase_client", lambda: banco)
+    texto = _texto(D.gerar_proposta(EDITAL, ITENS[:1], date(2026, 11, 3)))
+    assert "JUST WHEY PROTEIN ISOLADO" in texto
+    assert D.MODELO.exists() and D.EMPRESA.exists()
+
+
 def test_proposta_sem_itens_nao_sai():
     with pytest.raises(ValueError):
         D.gerar_proposta(EDITAL, [])

@@ -237,11 +237,12 @@ def gerar_proposta(edital: dict, itens: list[dict], quando: date | None = None, 
     itens: [{numero_item, descricao, produto, registro_anvisa, quantidade, preco_unitario}].
     Opcionais por item (proposta avulsa, outro ramo): "fabricante" e "mostrar_anvisa" (False tira a linha ANVISA).
     """
-    if not MODELO.exists():
-        raise RuntimeError("Falta o modelo backend/templates/privado/proposta_modelo.docx.")
     if not itens:
         raise ValueError("Nenhum item para ofertar na proposta.")
+    # No servidor o modelo não vem no deploy: busca no Supabase antes de checar.
     garantir_modelos()
+    if not MODELO.exists():
+        raise RuntimeError("Falta o modelo backend/templates/privado/proposta_modelo.docx.")
     dados = empresa()
     quando = quando or date.today()
     doc = Document(str(MODELO))
