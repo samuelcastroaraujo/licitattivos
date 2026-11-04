@@ -15,6 +15,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -48,7 +49,26 @@ _word = threading.Lock()
 
 # ── Dados básicos ──────────────────────────────────────────────────────────
 
+def garantir_modelos() -> None:
+    """
+    Modelo da proposta e dados da empresa não vão para o Git (CPF, RG, banco).
+    No servidor, vêm da pasta privada config/ do bucket "documentos" na primeira vez que forem usados.
+    """
+    faltando = [arquivo for arquivo in (MODELO, EMPRESA) if not arquivo.exists()]
+    if not faltando:
+        return
+    armazem = get_supabase_client().storage.from_(BUCKET)
+    PASTA_PRIVADA.mkdir(parents=True, exist_ok=True)
+    for arquivo in faltando:
+        try:
+            arquivo.write_bytes(armazem.download(f"config/{arquivo.name}"))
+            log.info("documentos.modelo_baixado", arquivo=arquivo.name)
+        except Exception as erro:
+            log.error("documentos.modelo_ausente", arquivo=arquivo.name, error=str(erro)[:200])
+
+
 def empresa() -> dict[str, Any]:
+    garantir_modelos()
     if not EMPRESA.exists():
         raise RuntimeError("Falta backend/templates/privado/empresa.json com os dados da empresa.")
     return json.loads(EMPRESA.read_text(encoding="utf-8"))
@@ -221,6 +241,7 @@ def gerar_proposta(edital: dict, itens: list[dict], quando: date | None = None, 
         raise RuntimeError("Falta o modelo backend/templates/privado/proposta_modelo.docx.")
     if not itens:
         raise ValueError("Nenhum item para ofertar na proposta.")
+    garantir_modelos()
     dados = empresa()
     quando = quando or date.today()
     doc = Document(str(MODELO))
@@ -309,6 +330,7 @@ def gerar_declaracao(decl_id: str, edital: dict | None = None, quando: date | No
     decl = next((d for d in DECLARACOES if d["id"] == decl_id), None)
     if not decl:
         raise ValueError(f"Declaração desconhecida: {decl_id}.")
+    garantir_modelos()
     if not MODELO.exists():
         raise RuntimeError("Falta o modelo backend/templates/privado/proposta_modelo.docx.")
     dados = empresa()
@@ -339,10 +361,34 @@ def gerar_declaracao(decl_id: str, edital: dict | None = None, quando: date | No
 
 # ── PDF pelo Word ──────────────────────────────────────────────────────────
 
-def converter_para_pdf(arquivos: dict[str, bytes]) -> dict[str, bytes]:
-    """Converte vários DOCX numa única abertura do Word. Sem Word (Linux/Railway), devolve vazio."""
-    if os.name != "nt" or not arquivos:
+def _converter_libreoffice(arquivos: dict[str, bytes]) -> dict[str, bytes]:
+    """Servidor Linux (Railway): LibreOffice sem tela converte todos de uma vez."""
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        log.warning("documentos.sem_conversor_pdf")
         return {}
+    with _word, tempfile.TemporaryDirectory() as pasta:
+        caminhos = []
+        for nome, conteudo in arquivos.items():
+            caminho = Path(pasta, f"{nome}.docx")
+            caminho.write_bytes(conteudo)
+            caminhos.append(str(caminho))
+        try:
+            subprocess.run([soffice, "--headless", "--norestore", f"-env:UserInstallation=file://{pasta}/perfil",
+                            "--convert-to", "pdf", "--outdir", pasta, *caminhos],
+                           check=True, capture_output=True, timeout=600)
+        except (subprocess.SubprocessError, OSError) as erro:
+            log.warning("documentos.pdf_falhou", error=str(erro)[:300])
+            return {}
+        return {nome: Path(pasta, f"{nome}.pdf").read_bytes() for nome in arquivos if Path(pasta, f"{nome}.pdf").exists()}
+
+
+def converter_para_pdf(arquivos: dict[str, bytes]) -> dict[str, bytes]:
+    """Converte vários DOCX de uma vez: Word no Windows, LibreOffice no servidor."""
+    if not arquivos:
+        return {}
+    if os.name != "nt":
+        return _converter_libreoffice(arquivos)
     with _word, tempfile.TemporaryDirectory() as pasta:
         for nome, conteudo in arquivos.items():
             Path(pasta, f"{nome}.docx").write_bytes(conteudo)
@@ -378,6 +424,17 @@ def _publicar(client, pasta: str, docx: dict[str, bytes], titulos: dict[str, str
             registro["pdf"] = f"{pasta}/{nome}.pdf"
         arquivos.append(registro)
     return arquivos
+
+
+def publicar_modelos() -> list[str]:
+    """Sobe o modelo da proposta e os dados da empresa para a pasta privada (usado antes do deploy)."""
+    client = get_supabase_client()
+    enviados = []
+    for arquivo, tipo in ((MODELO, DOCX), (EMPRESA, "application/json")):
+        if arquivo.exists():
+            _enviar(client, f"config/{arquivo.name}", arquivo.read_bytes(), tipo)
+            enviados.append(arquivo.name)
+    return enviados
 
 
 def baixar(caminho: str) -> bytes:

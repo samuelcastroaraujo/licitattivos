@@ -82,6 +82,7 @@ def test_detecta_declaracoes_exigidas_e_as_sem_modelo():
 
 
 def test_download_so_aceita_pastas_de_documentos():
-    for caminho in ("../.env", "pregoes/../../segredo", "outra/pasta.pdf"):
+    # config/ guarda modelo e dados da empresa (CPF, banco): nunca sai pela API.
+    for caminho in ("../.env", "pregoes/../../segredo", "outra/pasta.pdf", "config/empresa.json", "config/proposta_modelo.docx"):
         with pytest.raises(ValueError):
             D.baixar(caminho)

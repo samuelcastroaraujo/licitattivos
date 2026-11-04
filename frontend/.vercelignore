@@ -1,0 +1,7 @@
+# Enviado para a Vercel pelo CLI. A pasta public/pessoal (Operação 30K) vai junto de propósito:
+# no ar ela fica atrás da senha do painel (proxy.ts).
+node_modules
+.next
+.env*
+src/test
+*.tsbuildinfo
