@@ -96,6 +96,19 @@ async def _url_do_edital(http: httpx.AsyncClient, item: dict) -> str | None:
     return edital.get("url") if edital else None
 
 
+PNCP_PAGINA = re.compile(r"pncp\.gov\.br/(?:app/)?editais/(\d{14})/(\d{4})/(\d+)")
+
+
+async def anexo_pelo_pncp(url_edital: str | None) -> str | None:
+    """Acha o PDF do edital a partir do link da página do PNCP (cnpj/ano/sequencial)."""
+    achado = PNCP_PAGINA.search(url_edital or "")
+    if not achado:
+        return None
+    cnpj, ano, seq = achado.groups()
+    async with httpx.AsyncClient() as http:
+        return await _url_do_edital(http, {"orgaoEntidade": {"cnpj": cnpj}, "anoCompra": ano, "sequencialCompra": seq})
+
+
 async def _get_com_espera(http: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response | None:
     """O PNCP limita o volume de consultas: espera e tenta de novo antes de desistir."""
     for espera in ESPERAS_PNCP:

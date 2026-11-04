@@ -74,3 +74,10 @@ html, body {
 
 .animate-in { animation: fadeIn 0.3s ease-out; }
 .slide-in { animation: slideInRight 0.3s ease-out; }
+
+/* Impressão do relatório (Imprimir / PDF): some o painel, fica só o documento. */
+@media print {
+  @page { size: A4; margin: 16mm 14mm; }
+  body.imprimindo-relatorio { background: #fff !important; }
+  body.imprimindo-relatorio > *:not(.relatorio-portal) { display: none !important; }
+}

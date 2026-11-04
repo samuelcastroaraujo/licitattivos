@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export interface WarRoomEvent {
   id: string;
@@ -10,77 +10,65 @@ export interface WarRoomEvent {
   sugestao_resposta?: string;
 }
 
-export function useWarRoom(wsUrl: string) {
+/**
+ * Canal da War Room (Agente 8). Sem URL configurada, não conecta: o Agente 8 ainda
+ * não está ligado ao pipeline e o navegador não tem o token da API.
+ */
+export function useWarRoom(wsUrl?: string) {
   const [events, setEvents] = useState<WarRoomEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Cria o som discreto para o alerta vermelho
-    if (typeof window !== 'undefined') {
-      audioRef.current = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU');
-    }
-    
-    let pingInterval: NodeJS.Timeout;
+    if (!wsUrl) return;
+    let ping: ReturnType<typeof setInterval> | undefined;
+    let religar: ReturnType<typeof setTimeout> | undefined;
+    let espera = 5_000;
+    let encerrado = false;
 
     const connect = () => {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
       ws.onopen = () => {
         setConnected(true);
-        // Ping-pong a cada 30s (Regra do Desapego)
-        pingInterval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }));
-          }
-        }, 30000);
+        espera = 5_000;
+        ping = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'ping' })), 30_000);
       };
-
       ws.onmessage = (message) => {
         try {
           const data = JSON.parse(message.data);
-
           if (data.type === 'pong') return;
-
-          if (data.type === 'sync_state') {
-            setEvents(data.events || []);
-          } else if (data.nivel) {
-            // É um novo evento (broadcast)
-            setEvents(prev => [...prev, data as WarRoomEvent]);
-            
-            if (data.nivel === 'vermelho' && audioRef.current) {
-              audioRef.current.play().catch(() => {}); // catch para browsers bloqueando autoplay
-            }
-          }
-        } catch (e) {
-          console.error("Erro no WS payload", e);
+          if (data.type === 'sync_state') setEvents(data.events || []);
+          else if (data.nivel) setEvents((prev) => [...prev, data as WarRoomEvent]);
+        } catch {
+          /* payload inválido: ignora */
         }
       };
-
-      ws.onclose = () => {
+      ws.onclose = (evento) => {
         setConnected(false);
-        clearInterval(pingInterval);
-        // Reconnection logic simple
-        setTimeout(connect, 5000);
+        clearInterval(ping);
+        // 1008 = token recusado: insistir não resolve.
+        if (encerrado || evento.code === 1008) return;
+        religar = setTimeout(connect, espera);
+        espera = Math.min(espera * 2, 60_000);
       };
     };
 
     connect();
-
     return () => {
-      clearInterval(pingInterval);
+      encerrado = true;
+      clearInterval(ping);
+      clearTimeout(religar);
       wsRef.current?.close();
     };
   }, [wsUrl]);
 
   const acknowledge = (eventId: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'ack', event_id: eventId }));
     }
-    setEvents(prev => prev.map(e => e.id === eventId ? { ...e, ack: true } : e));
+    setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ack: true } : e)));
   };
 
-  return { connected, events, acknowledge };
+  return { enabled: Boolean(wsUrl), connected, events, acknowledge };
 }

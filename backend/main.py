@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from db.client import get_supabase_client
-from routers import health, editais, products, pipeline
+from routers import aprendizado, documentos, health, editais, products, pipeline
 from fastapi import WebSocket, WebSocketDisconnect
 from ws.manager import manager
 import sentry_sdk
@@ -44,17 +44,35 @@ async def lifespan(app: FastAPI):
         log.error("supabase.connection_failed", error=str(e))
         raise
 
-    agenda = None
-    if settings.ingest_ufs and settings.environment != "test":
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from agents.orchestrator import ingerir_pncp, processar_novos
+    if settings.environment != "test":
+        from agents.orchestrator import destravar_analises_interrompidas
+        destravar_analises_interrompidas()
 
-        async def rotina_diaria():
-            await ingerir_pncp([u.strip() for u in settings.ingest_ufs.split(",") if u.strip()])
-            await processar_novos()
+    agenda = None
+    if settings.environment != "test":
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from agents.documentos import gerar_estoque
+
+        async def renovar_estoque():
+            # Confere todo dia; só gera quando o último lote tem 30 dias ou mais.
+            try:
+                await gerar_estoque()
+            except Exception as erro:
+                log.error("documentos.estoque_falhou", error=str(erro))
 
         agenda = AsyncIOScheduler(timezone="America/Sao_Paulo")
-        agenda.add_job(rotina_diaria, "cron", hour=settings.ingest_hora)
+        agenda.add_job(renovar_estoque, "cron", hour=7, minute=30)
+        # Ao ligar, cria o primeiro lote se ainda não existir (sem travar o startup).
+        agenda.add_job(renovar_estoque, "date")
+
+        if settings.ingest_ufs:
+            from agents.orchestrator import ingerir_pncp, processar_novos
+
+            async def rotina_diaria():
+                await ingerir_pncp([u.strip() for u in settings.ingest_ufs.split(",") if u.strip()])
+                await processar_novos()
+
+            agenda.add_job(rotina_diaria, "cron", hour=settings.ingest_hora)
         agenda.start()
 
     yield
@@ -84,6 +102,8 @@ app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(products.router, prefix="/api/products", tags=["products"], dependencies=[Depends(exigir_token)])
 app.include_router(editais.router, prefix="/api/editais", tags=["editais"], dependencies=[Depends(exigir_token)])
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(documentos.router, prefix="/api/documentos", tags=["documentos"], dependencies=[Depends(exigir_token)])
+app.include_router(aprendizado.router, prefix="/api/aprendizado", tags=["aprendizado"], dependencies=[Depends(exigir_token)])
 
 @app.websocket("/ws/war-room")
 async def websocket_war_room(websocket: WebSocket, token: str = ""):

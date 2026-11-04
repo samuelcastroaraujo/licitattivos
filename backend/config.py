@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     apify_webhook_secret: str = Field("", validation_alias="APIFY_WEBHOOK_SECRET")
 
     # Modelo e rotina automática
+    llm_provider: str = Field("openrouter", validation_alias="LLM_PROVIDER")  # "gemini" | "openrouter"
     llm_model: str = Field("deepseek/deepseek-v4.1-flash", validation_alias="LLM_MODEL")
+    gemini_api_key: str = Field("", validation_alias="GEMINI_API_KEY")
+    # O primeiro da lista é o principal; os outros entram quando o Google responde que está sobrecarregado.
+    gemini_model: str = Field("gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash", validation_alias="GEMINI_MODEL")
     ingest_ufs: str = Field("", validation_alias="INGEST_UFS")
     ingest_hora: int = Field(6, validation_alias="INGEST_HORA")
     frontend_url: str = Field("", validation_alias="FRONTEND_URL")

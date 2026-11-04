@@ -7,8 +7,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from agents.agent0_ingest import editais_de_apify
-from agents.orchestrator import executar_pipeline, ingerir_apify, ingerir_conlicitacao, ingerir_pncp, processar_novos, salvar_novos
+from agents.orchestrator import executar_com_seguranca, reaplicar_aprendizado, ingerir_apify, ingerir_conlicitacao, ingerir_pncp, processar_novos, salvar_novos
 from config import settings
+from db.client import get_supabase_client
 from routers.auth import exigir_token
 
 router = APIRouter()
@@ -75,5 +76,20 @@ async def rodar_novos(tarefas: BackgroundTasks, limite: int = 20):
 
 @router.post("/run/{edital_id}", dependencies=protegido)
 async def rodar_edital(edital_id: UUID, tarefas: BackgroundTasks):
-    tarefas.add_task(executar_pipeline, str(edital_id))
+    linhas = get_supabase_client().table("editais").select("status").eq("id", str(edital_id)).limit(1).execute().data
+    if not linhas:
+        raise HTTPException(status_code=404, detail="Edital não encontrado.")
+    if linhas[0]["status"] == "em_analise":
+        raise HTTPException(status_code=409, detail="Este edital já está em análise.")
+    tarefas.add_task(executar_com_seguranca, str(edital_id))
     return {"status": "iniciado", "edital_id": str(edital_id)}
+
+
+@router.post("/reaplicar/{edital_id}", dependencies=protegido)
+async def reaplicar(edital_id: UUID):
+    """Recalcula a compatibilidade com o aprendizado atual. Rápido e sem custo de IA."""
+    try:
+        resultado = await reaplicar_aprendizado(str(edital_id))
+    except ValueError as erro:
+        raise HTTPException(status_code=400, detail=str(erro)) from erro
+    return {"status": resultado["status"], "itens": len(resultado["itens"])}

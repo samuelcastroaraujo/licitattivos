@@ -2,6 +2,7 @@
 Agente 3 — Extrator de Requisitos (LLM + Regex)
 Usa LLM para estruturar o texto do edital em itens e usa Regex para revalidar limiares numéricos críticos.
 """
+import asyncio
 import json
 import re
 import httpx
@@ -60,7 +61,98 @@ _ESQUEMA_ITENS = {
 }
 
 
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
+GEMINI_SOBRECARGA = (429, 500, 503, 504)
+# Espera antes de cada volta pela lista de modelos (segundos): ~3 min no total.
+GEMINI_ESPERAS = (0, 15, 30, 60, 90)
+
+
 async def call_llm_for_extraction(raw_text: str) -> dict[str, Any]:
+    """Estrutura o edital com o provedor escolhido em LLM_PROVIDER."""
+    return await gerar_json(raw_text, PROMPT_EXTRACAO, _ESQUEMA_ITENS, "itens_edital")
+
+
+async def gerar_json(texto: str, sistema: str, esquema: dict, nome: str) -> dict[str, Any]:
+    """Qualquer tarefa de IA com resposta JSON presa a um esquema (itens, resumo do edital...)."""
+    if settings.llm_provider.lower() == "gemini":
+        return await _extrair_com_gemini(texto, sistema, esquema)
+    return await _extrair_com_openrouter(texto, sistema, esquema, nome)
+
+
+async def _extrair_com_gemini(raw_text: str, sistema: str = PROMPT_EXTRACAO, esquema: dict | None = None) -> dict[str, Any]:
+    """Gemini com saída JSON presa ao esquema. Modelo sobrecarregado passa para o próximo da lista."""
+    if not settings.gemini_api_key:
+        raise RuntimeError("Configure GEMINI_API_KEY.")
+    modelos = [m.strip() for m in settings.gemini_model.split(",") if m.strip()]
+    corpo = {
+        "systemInstruction": {"parts": [{"text": sistema}]},
+        "contents": [{"role": "user", "parts": [{"text": raw_text}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseJsonSchema": esquema or _ESQUEMA_ITENS,
+            "maxOutputTokens": 65536,
+            "temperature": 0,
+        },
+    }
+    ultimo_erro = "Gemini indisponível."
+    async with httpx.AsyncClient() as http:
+        # Pico de demanda costuma passar em segundos: dá várias voltas na lista antes de desistir.
+        for rodada, espera in enumerate(GEMINI_ESPERAS):
+            if espera:
+                log.info("agent3.gemini_aguardando", segundos=espera, rodada=rodada + 1)
+                await asyncio.sleep(espera)
+            resultado = await _rodada_gemini(http, modelos, corpo)
+            if isinstance(resultado, dict):
+                return resultado
+            ultimo_erro = resultado
+    raise RuntimeError(ultimo_erro)
+
+
+async def _rodada_gemini(http: httpx.AsyncClient, modelos: list[str], corpo: dict) -> dict[str, Any] | str:
+    """Tenta cada modelo uma vez. Devolve o JSON ou a mensagem do último erro recuperável."""
+    ultimo_erro = "Gemini indisponível."
+    for modelo in modelos:
+        try:
+            resposta = await http.post(
+                GEMINI_URL.format(modelo=modelo),
+                headers={"x-goog-api-key": settings.gemini_api_key},
+                json=corpo,
+                timeout=600.0,
+            )
+        except httpx.TransportError as erro:
+            ultimo_erro = f"Gemini sem resposta ({modelo}): {erro.__class__.__name__}."
+            log.warning("agent3.gemini_conexao", modelo=modelo, error=str(erro))
+            continue
+        dados = resposta.json() if resposta.content else {}
+        mensagem = (dados.get("error") or {}).get("message", "")
+        if resposta.status_code in GEMINI_SOBRECARGA:
+            ultimo_erro = f"Gemini sobrecarregado ou sem cota ({modelo}). Tente de novo em alguns minutos."
+            log.warning("agent3.gemini_tenta_outro", modelo=modelo, status=resposta.status_code, detalhe=mensagem[:200])
+            continue
+        if resposta.status_code in (400, 401, 403) and ("api key" in mensagem.lower() or "permission" in mensagem.lower()):
+            raise RuntimeError("Chave do Gemini inválida ou sem permissão.")
+        if resposta.status_code == 404:
+            ultimo_erro = f"Modelo {modelo} não disponível nesta conta do Gemini."
+            continue
+        if resposta.status_code >= 400:
+            raise RuntimeError(f"Gemini: {mensagem or resposta.status_code}")
+        candidatos = dados.get("candidates") or []
+        if not candidatos:
+            bloqueio = (dados.get("promptFeedback") or {}).get("blockReason")
+            raise RuntimeError("Gemini não respondeu" + (f" (bloqueio: {bloqueio})." if bloqueio else "."))
+        candidato = candidatos[0]
+        if candidato.get("finishReason") == "MAX_TOKENS":
+            raise RuntimeError("Edital grande demais: a resposta foi cortada.")
+        # Modelos com raciocínio mandam partes "thought"; o JSON é o texto restante.
+        partes = (candidato.get("content") or {}).get("parts", [])
+        texto = "".join(p.get("text", "") for p in partes if not p.get("thought"))
+        log.info("agent3.gemini_ok", modelo=dados.get("modelVersion", modelo))
+        return json.loads(texto)
+    return ultimo_erro
+
+
+async def _extrair_com_openrouter(raw_text: str, sistema: str = PROMPT_EXTRACAO, esquema: dict | None = None,
+                                  nome: str = "itens_edital") -> dict[str, Any]:
     """Estrutura o edital pela OpenRouter, com JSON validado pelo esquema."""
     if not settings.openrouter_api_key:
         raise RuntimeError("Configure OPENROUTER_API_KEY.")
@@ -68,12 +160,12 @@ async def call_llm_for_extraction(raw_text: str) -> dict[str, Any]:
         "model": settings.llm_model,
         "max_tokens": 64000,
         "messages": [
-            {"role": "system", "content": PROMPT_EXTRACAO},
+            {"role": "system", "content": sistema},
             {"role": "user", "content": raw_text},
         ],
         "response_format": {
             "type": "json_schema",
-            "json_schema": {"name": "itens_edital", "strict": True, "schema": _ESQUEMA_ITENS},
+            "json_schema": {"name": nome, "strict": True, "schema": esquema or _ESQUEMA_ITENS},
         },
         "provider": {"require_parameters": True},
     }

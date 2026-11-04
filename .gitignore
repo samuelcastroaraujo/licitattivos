@@ -46,3 +46,8 @@ yarn-error.log*
 
 # Temporary / Scratchpad files
 Untitled-1.txt
+
+# Modelos com dados reais da empresa (CPF, RG, banco): nunca no Git
+backend/templates/privado/
+*.docx
+!backend/templates/*.docx

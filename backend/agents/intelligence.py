@@ -50,17 +50,27 @@ def _cliente(orgao: str, uf: str | None, snapshot: dict) -> dict | None:
     return None
 
 
+def brl(valor: float) -> str:
+    """Formato brasileiro: R$ 1.234,56."""
+    return "R$ " + f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _data_br(iso: str | None) -> str:
+    partes = (iso or "").split("-")
+    return "/".join(reversed(partes)) if len(partes) == 3 else (iso or "—")
+
+
 def analisar_orgao(orgao: str, uf: str | None = None, snapshot: dict | None = None) -> dict:
     base = snapshot if snapshot is not None else carregar_snapshot()
     cliente = _cliente(orgao, uf, base)
     if not cliente:
         return {"cliente_existente": False, "sinais": ["Sem histórico de venda neste órgão."], "prioridade": "normal"}
-    sinais = [f"Já comprou R$ {cliente['total']:,.2f} em {cliente['notas']} notas; última em {cliente['ultima_compra']}."]
+    sinais = [f"Já comprou {brl(cliente['total'])} em {cliente['notas']} notas; última em {_data_br(cliente.get('ultima_compra'))}."]
     prioridade = "alta"
     vencido = cliente.get("vencido", 0)
     if vencido > 0:
         prioridade = "atencao"
-        sinais.append(f"Risco de recebimento: R$ {vencido:,.2f} vencidos. Considere antes de disputar.")
+        sinais.append(f"Risco de recebimento: {brl(vencido)} vencidos. Considere antes de disputar.")
     return {"cliente_existente": True, "cliente": cliente, "sinais": sinais, "prioridade": prioridade}
 
 

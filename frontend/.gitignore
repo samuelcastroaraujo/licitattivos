@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Operação 30K: dados pessoais e recebíveis reais, nunca no Git
+/public/pessoal/
